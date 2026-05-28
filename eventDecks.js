@@ -1,6 +1,7 @@
 require('dotenv').config();
 const cheerio = require("cheerio");
 const mysql = require('mysql2/promise');
+const { log } = require('node:console');
 
 
 const RESOURCE = process.env.FETCH_RESOURCE
@@ -225,6 +226,58 @@ async function CollectDeckData(connection) {
 
 }
 
+async function createDeckIdentity(connection) {
+
+    let [links] = await connection.execute(
+        `SELECT deckLink,deckListText FROM alldecklinks WHERE isChecked = 1 AND deckListText NOT LIKE 'NOT VALID'`
+    );
+
+    for (const link of links) {
+        let deckArchetype = ""
+        let deckLeaderId = ""
+        let deckBaseId = ""
+        let deckLink = link.deckLink
+        let deckText = link.deckListText
+        try {
+            let leaderTitle = deckText.split("Leader\n1 ")[1].split("\n")[0];
+            let [rows] = await connection.execute(
+                `SELECT leaderName,leaderSet,leaderId FROM leaderdata WHERE leaderMelee LIKE ?`, [leaderTitle]
+            );
+            if (rows.length == 0) {
+                continue;
+            }
+            const leader = rows[0];
+            deckLeaderId = leader.leaderId
+            deckArchetype = leader.leaderName + "(" + leader.leaderSet + ")"
+
+        } catch { }
+        try {
+            let baseName = deckText.split("Base\n1 ")[1].split("\n")[0];
+            let [rows] = await connection.execute(
+                `SELECT baseAltName,baseId FROM basedata WHERE baseName LIKE ?`, [baseName]
+            );
+            if (rows.length == 0) {
+                continue;
+            }
+            const base = rows[0];
+            deckArchetype += "/" + base.baseAltName
+            deckBaseId = base.baseId
+
+        } catch { }
+
+        if (!deckLeaderId || !deckBaseId) {
+            continue;
+        }
+
+        await connection.execute(
+            `INSERT IGNORE INTO deckidentity (deckLink, deckArchetype,deckLeaderId,deckBaseId) VALUES(?,?,?,?)`,
+            [deckLink, deckArchetype, deckLeaderId, deckBaseId]
+        );
+    }
+
+
+}
+
 async function updateDeckData() {
 
     const connection = await mysql.createConnection({
@@ -237,7 +290,6 @@ async function updateDeckData() {
 
     try {
         await scrapeRecentEvents(connection)
-
     } catch (err) {
         console.error(err);
     }
@@ -262,6 +314,8 @@ async function updateDeckData() {
             console.error(err);
         }
     }
+
+    await createDeckIdentity(connection)
 
     await connection.end();
 }
