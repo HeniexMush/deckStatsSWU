@@ -13,6 +13,8 @@ const DECKNAMEINDX = 3
 const EVENTTYPEINDX = 4
 const EVENTINDX = 7
 
+const formatList = ["premier", "sealed", "eternal"]
+
 let SEARCHING = true
 let COLLECTING = true
 
@@ -160,7 +162,7 @@ async function Search(connection) {
 
 async function CollectDeckData(connection) {
     let [links] = await connection.execute(
-        `SELECT deckLink FROM alldecklinks WHERE isChecked = 1 AND (eventJson IS NULL OR deckListText IS NULL) LIMIT 50`
+        `SELECT deckLink FROM alldecklinks WHERE isChecked = 1 AND (eventJson IS NULL OR deckListText IS NULL OR deckDate IS NULL OR deckFormat IS NULL) LIMIT 50`
     );
     if (links.length < 5) { COLLECTING = false }
 
@@ -207,15 +209,29 @@ async function CollectDeckData(connection) {
                 }
             });
             const html = await res.text();
-            const chrupek = await cheerio.load(html);
+            const chrupek = cheerio.load(html);
 
-            let deckString = await chrupek(DECKID).text().trim()
-            console.log(deckString)
-
+            let deckString = chrupek(DECKID).text().trim()
+            //console.log(deckString)
+            let deckFormat = chrupek('.decklist-details-row .text-nowrap')
+                .eq(2)
+                .text()
+                .trim();
+            console.log("#####")
+            console.log(deckFormat)
+            if (!formatList.includes(deckFormat.toLowerCase())) {
+                deckFormat = "UNKNOWN"
+            }
+            console.log(deckFormat)
+            let rawDate = chrupek('[data-toggle="date"]').attr('data-value');
+            let date = new Date(rawDate);
+            let deckDate = date.toISOString().slice(0, 19).replace('T', ' ');
+            console.log(deckDate)
             await connection.execute(
-                `UPDATE alldecklinks SET deckListText = ? WHERE deckLink = ?`,
-                [deckString ? deckString : "NOT VALID", link]
+                `UPDATE alldecklinks SET deckListText = ?, deckFormat = ?, deckDate = ? WHERE deckLink = ?`,
+                [deckString ? deckString : "NOT VALID", deckFormat, deckDate, link]
             );
+            console.log("#####")
 
 
         } catch (error) {
