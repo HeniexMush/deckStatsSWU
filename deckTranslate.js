@@ -1,8 +1,6 @@
 require('dotenv').config();
 const cheerio = require("cheerio");
 const mysql = require('mysql2/promise');
-const { error, log } = require('node:console');
-const { basename } = require('node:path');
 
 const config = {
     db: {
@@ -162,7 +160,5 @@ async function searchBases(params) {
 }
 
 
-
-
 //searchLeaders()
-searchBases()
+//searchBases()

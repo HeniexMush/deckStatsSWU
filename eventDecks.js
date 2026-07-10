@@ -217,21 +217,21 @@ async function CollectDeckData(connection) {
                 .eq(2)
                 .text()
                 .trim();
-            console.log("#####")
-            console.log(deckFormat)
+            //console.log("#####")
+            //console.log(deckFormat)
             if (!formatList.includes(deckFormat.toLowerCase())) {
                 deckFormat = "UNKNOWN"
             }
-            console.log(deckFormat)
+            //console.log(deckFormat)
             let rawDate = chrupek('[data-toggle="date"]').attr('data-value');
             let date = new Date(rawDate);
             let deckDate = date.toISOString().slice(0, 19).replace('T', ' ');
-            console.log(deckDate)
+            //console.log(deckDate)
             await connection.execute(
                 `UPDATE alldecklinks SET deckListText = ?, deckFormat = ?, deckDate = ? WHERE deckLink = ?`,
                 [deckString ? deckString : "NOT VALID", deckFormat, deckDate, link]
             );
-            console.log("#####")
+            //console.log("#####")
 
 
         } catch (error) {
@@ -294,6 +294,82 @@ async function createDeckIdentity(connection) {
 
 }
 
+
+async function unloadJson(connection) {
+    try {
+        let [data] = await connection.execute(
+            'SELECT eventJson,deckLink FROM alldecklinks WHERE isChecked = 1 AND isProcessed = 0'
+        );
+
+
+        for (const dataset of data) {
+            let deckLink = dataset.deckLink
+
+            await connection.execute(
+                `UPDATE alldecklinks SET isProcessed = 1 WHERE deckLink = ?`,
+                [deckLink]
+            )
+
+            let eventJson = JSON.parse(dataset.eventJson)
+
+            let player = eventJson.Team.Name
+            let games = eventJson.Matches
+
+            for (const match of games) {
+                //console.log(player, match)
+
+                let result = match.Result
+                let wins, loses, ties
+                if (result.includes("was assigned a bye")) {
+                    continue
+                }
+                if (result.includes(" Draw")) {
+                    [wins, loses, ties] = result.split(" Draw")[0].split("-")
+                }
+                if (result.includes(" won ")) {
+                    [wins, loses, ties] = result.split("won ")[1].split("-")
+                }
+                if (wins == null || loses == null || ties == null) {
+                    continue
+                }
+                //console.log(wins, loses, ties)
+
+                let opponent = match.Opponent
+                let opponentDeck = match.OpponentDecklistGuid
+                if (opponent == null || opponentDeck == null) {
+                    continue
+                }
+
+                if (result.includes(opponent)) {
+                    [wins, loses] = [loses, wins]
+
+                }
+
+                let gameResult = "TIE"
+                if (wins > loses) {
+                    gameResult = "WIN"
+                } else if (loses > wins) {
+                    gameResult = "LOSS"
+                }
+
+                await connection.execute(
+                    `INSERT IGNORE INTO allgames (deckLink,oponentLink,wins,loses,ties,gameResult) VALUES(?,?,?,?,?,?)`,
+                    [deckLink, opponentDeck, wins, loses, ties, gameResult]
+                );
+
+            }
+
+        }
+
+    } catch (err) {
+        console.log(err)
+    }
+
+    await connection.end()
+
+}
+
+
 async function updateDeckData() {
 
     const connection = await mysql.createConnection({
@@ -332,6 +408,7 @@ async function updateDeckData() {
     }
 
     await createDeckIdentity(connection)
+    await unloadJson(connection)
 
     await connection.end();
 }
